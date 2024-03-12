@@ -16,6 +16,7 @@
 #include "Common/Version.h"
 #include "Core/Core.h"
 
+#include "DolphinTool/ExtractCommand.h"
 #include "DolphinTool/ConvertCommand.h"
 #include "DolphinTool/HeaderCommand.h"
 #include "DolphinTool/VerifyCommand.h"
@@ -44,13 +45,16 @@ int main(int argc, char* argv[])
   const std::string_view command_str = argv[1];
   // Take off the program name and command selector before passing arguments down
   const std::vector<std::string> args(argv + 2, argv + argc);
-
+  
   if (command_str == "convert")
     return DolphinTool::ConvertCommand(args);
   else if (command_str == "verify")
     return DolphinTool::VerifyCommand(args);
   else if (command_str == "header")
     return DolphinTool::HeaderCommand(args);
+  else if (command_str == "extract")
+    return DolphinTool::Extract(args);
+
   PrintUsage();
   return EXIT_FAILURE;
 }
