@@ -1,31 +1,24 @@
 // Copyright 2024 Dolphin Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
-// Written by jonas@kalsvik.no | 12/03/24
 
 #include <DolphinTool/ExtractCommand.h>
+
+#include <OptionParser.h>
+#include <fmt/format.h>
+#include <fmt/ostream.h>
+#include <future>
+#include <iostream>
+#include "DiscIO/DiscExtractor.h"
+#include "DiscIO/DiscUtils.h"
+#include "DiscIO/Filesystem.h"
+#include "DiscIO/Volume.h"
 
 namespace DolphinTool
 {
 std::shared_ptr<DiscIO::Volume> disc_volume;
 
-DiscIO::Partition GetPartitionFromID(int id)
-{
-  return id == -1 ? DiscIO::PARTITION_NONE : disc_volume->GetPartitions()[id];
-}
-
-void ExtractPartition(const DiscIO::Partition& partition, const std::string& out)
-{
-  ExtractDirectory(partition, "", out + "/files");
-  ExtractSystemData(partition, out);
-}
-
-bool ExtractSystemData(const DiscIO::Partition& partition, const std::string& out)
-{
-  return DiscIO::ExportSystemData(*disc_volume, partition, out);
-}
-
-void ExtractDirectory(const DiscIO::Partition& partition, const std::string& path,
-                      const std::string& out)
+static void ExtractDirectory(const DiscIO::Partition& partition, const std::string& path,
+                             const std::string& out)
 {
   const DiscIO::FileSystem* filesystem = disc_volume->GetFileSystem(partition);
   if (!filesystem)
@@ -34,36 +27,69 @@ void ExtractDirectory(const DiscIO::Partition& partition, const std::string& pat
   std::unique_ptr<DiscIO::FileInfo> info = filesystem->FindFileInfo(path);
   u32 size = info->GetTotalChildren();
 
-  const bool all = path != "";  // todo: nasty, fix
-
   std::future<void> future = std::async(std::launch::async, [&] {
-    int progress = 0;
+  u32 files = 0;
 
     DiscIO::ExportDirectory(*disc_volume, partition, *info, true, path, out,
-                            [](const std::string& current) { return false; });
+                            [&files, &size](const std::string& current) {
+                              files++;
+                              float prog = ((float)files / (float)size) * 100;
+                              fmt::print("Extracting: {} | {}% \n", current, (int)prog);
+                              return false;
+                            });
   });
 }
 
-void ExtractFile(const DiscIO::Partition& partition, const std::string& path,
-                 const std::string& out)
+static bool ExtractSystemData(const DiscIO::Partition& partition, const std::string& out)
 {
-  const DiscIO::FileSystem* filesystem = disc_volume->GetFileSystem(partition);
-  if (!filesystem)
-    return;
+  return DiscIO::ExportSystemData(*disc_volume, partition, out);
+}
 
-  bool success =
-      DiscIO::ExportFile(*disc_volume, partition, filesystem->FindFileInfo(path).get(), out);
+static void ExtractPartition(const DiscIO::Partition& partition, const std::string& out)
+{
+  ExtractDirectory(partition, "", out + "/files");
+  ExtractSystemData(partition, out);
 }
 
 int Extract(const std::vector<std::string>& args)
 {
-  disc_volume = DiscIO::CreateVolume(args[0]);
-  auto folder = args[1];
-  if (folder == "")
-    return 1;
+  optparse::OptionParser parser;
+
+  parser.usage("usage: extract [options]...");
+
+  parser.add_option("-i", "--input")
+      .type("string")
+      .action("store")
+      .help("Path to disc image FILE.")
+      .metavar("FILE");
+
+  parser.add_option("-o", "--output")
+      .type("string")
+      .action("store")
+      .help("Path to the destination FILE.")
+      .metavar("FILE");
+
+  const optparse::Values& options = parser.parse_args(args);
+
+  if (!options.is_set("input"))
+  {
+    fmt::print(std::cerr, "Error: No input image set\n");
+    return EXIT_FAILURE;
+  }
+  const std::string& input_file_path = options["input"];
+
+  if (!options.is_set("output"))
+  {
+    fmt::print(std::cerr, "Error: No output folder set\n");
+    return EXIT_FAILURE;
+  }
+  const std::string& output_folder_path = options["output"];
+
+  disc_volume = DiscIO::CreateVolume(input_file_path);
+
   if (disc_volume->GetPartitions().empty())
   {
-    ExtractPartition(DiscIO::PARTITION_NONE, folder);
+    ExtractPartition(DiscIO::PARTITION_NONE, output_folder_path);
   }
   else
   {
@@ -72,7 +98,7 @@ int Extract(const std::vector<std::string>& args)
       if (const std::optional<u32> partition_type = disc_volume->GetPartitionType(p))
       {
         const std::string partition_name = DiscIO::NameForPartitionType(*partition_type, true);
-        ExtractPartition(p, folder + '/' + partition_name);
+        ExtractPartition(p, output_folder_path + '/' + partition_name);
       }
     }
   }
@@ -80,4 +106,4 @@ int Extract(const std::vector<std::string>& args)
   return 0;
 }
 
-}
+}  // namespace DolphinTool

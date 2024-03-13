@@ -25,7 +25,7 @@ static void PrintUsage()
 {
   fmt::print(std::cerr, "usage: dolphin-tool COMMAND -h\n"
                         "\n"
-                        "commands supported: [convert, verify, header]\n");
+                        "commands supported: [convert, verify, header, extract]\n");
 }
 
 #ifdef _WIN32
